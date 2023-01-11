@@ -9,6 +9,6 @@
 from .fock_classes import (fock_space, fock_space_kron, real_time_solver, )
 
 __author__ = 'George Sultanov'
-__version__ = '0.1.11'
+__version__ = '0.1.18'
 __email__ = 'gfaberlane@gmail.com'
 

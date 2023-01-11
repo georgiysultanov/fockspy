@@ -3,6 +3,7 @@
 
 # In[1]:
 
+#ver '0.1.18'
 
 get_ipython().run_line_magic('matplotlib', 'inline')
 import matplotlib.pyplot as plt
@@ -17,7 +18,7 @@ from scipy.sparse import diags
 
 
 class fock_space:
-    def __init__(self, about_excitations, global_exc, statistics):
+    def __init__(self, about_excitations, global_exc, statistics, fermi_sea_modes = None):
 
         self.global_exc = global_exc #internal parameter
         self.statistics = statistics #internal parameter
@@ -46,17 +47,37 @@ class fock_space:
                 self.modes = len(about_excitations)
         #2)
                 self.local_exc = np.array(about_excitations)
+        
+        elif statistics == 'Fermi_sea':
+            if type(about_excitations) is int:
+        #1)
+                self.modes = about_excitations
+        #2)
+                self.local_exc = np.full(self.modes, 1)
+            else:
+        #1)
+                self.modes = len(about_excitations)
+        #2)
+                self.local_exc = np.array(about_excitations)
+            
+            self.fermi_sea_modes = fermi_sea_modes
+                
                 
         else:
-            print('Сhoose the statistics: Bose or Fermi') 
+            print('Сhoose the statistics: Bose, Fermi or Fermi_sea') 
         
         self.local_exc1 = np.array(self.local_exc+1) #internal parameter
         
+        
         #3)
-        self.states_list = list(self.states_generator())
+        if statistics == 'Fermi_sea':
+            self.states_list = list(self.sea_generator())
+        else:
+            self.states_list = list(self.states_generator())
         
         #4)
         self.find_index = {state: idx for idx, state in enumerate(self.states_list)}
+            
         
         #5)
         self.dimension  = len(self.states_list)
@@ -109,7 +130,7 @@ class fock_space:
                 A = coo_matrix((data, (row, col)), shape=(self.dimension , self.dimension ), dtype = complex)
                 self.create.append(A)
        
-        elif statistics == 'Fermi':
+        elif statistics == 'Fermi' or 'Fermi_sea':
         
         #8)
             self.annihilate=[]
@@ -126,6 +147,8 @@ class fock_space:
                         y = sum(current_state[:k])
                         current_state[k] = 0
                         p = self.index(current_state)
+                        if (p=='666'):
+                            continue
                         row[i] = p
                         data[i]=(-1)**y*(self.states_list[i][k])**0.5
                 A = coo_matrix((data, (row, col)), shape=(self.dimension , self.dimension ), dtype = complex)
@@ -146,15 +169,20 @@ class fock_space:
                         y = sum(current_state[:k])
                         current_state[k] = 1
                         p = self.index(current_state)
+                        if (p=='666'):
+                            continue
                         row[i] = p
                         data[i]=(-1)**y*(self.states_list[i][k]+1)**0.5
                 A = coo_matrix((data, (row, col)), shape=(self.dimension , self.dimension ), dtype = complex)
                 self.create.append(A)
-            
+        
+        
+        
         else:
-            print('Сhoose the statistics: Bose or Fermi')
-                  
-                
+            print('Сhoose the statistics: Bose, Fermi or Fermi_sea')
+
+             
+    
     def sigmax(self, i):
 
         return(self.annihilate[i] + self.create[i])
@@ -168,23 +196,27 @@ class fock_space:
     def sigmaz(self, i):
 
         return(self.annihilate[i]@self.create[i] - self.create[i]@self.annihilate[i])
-  
+    
+    
+    
+                
+    def ptrace(self, psi, k):
+        psi1 = coo_array(psi)
+        rho = psi1.conj().T @ psi1
         
-    def states_generator(self):
-        #Generates all the possible states for given Fock space
-        current_state = (0,)*len(self.local_exc1)
-        n = 0
-        while True:
-            yield current_state
-            j = len(self.local_exc1) - 1
-            current_state = current_state[:j] + (current_state[j]+1,)
-            n += 1
-            while n > self.global_exc or current_state[j] >= self.local_exc1[j]:
-                j -= 1
-                if j < 0:
-                    return
-                n -= current_state[j+1] - 1
-                current_state = current_state[:j] + (current_state[j]+1, 0) + current_state[j+2:]
+        N = self.global_exc
+        result = np.zeros((N+1,N+1))
+        for p in range(N+1):
+            for q in range(N+1):
+                N1 = N - max(p,q)
+                a = list(self.ngenerator(k, N1, p))
+                b = list(self.ngenerator(k, N1, q))
+                for i in range(len(a)):
+                    result[p,q] += rho[a[i],b[i]]
+        return(result)
+                            
+            
+        
       
         
     def occupations(self,i):
@@ -202,8 +234,129 @@ class fock_space:
             print('incorrect size of an array')
         else:
             s = tuple(state)
-            return(self.find_index[s])
+            try:
+                return(self.find_index[s])
+            except:
+                return('666')
     
+
+  
+        
+    def states_generator(self):
+        #Generates all the possible states for given Fock space
+        current_state = (0,)*len(self.local_exc1)
+        n = 0
+        while True:
+            yield current_state
+            j = len(self.local_exc1) - 1
+            current_state = current_state[:j] + (current_state[j]+1,)
+            n += 1
+            while n > self.global_exc or current_state[j] >= self.local_exc1[j]:
+                j -= 1
+                if j < 0:
+                    return
+                n -= current_state[j+1] - 1
+                current_state = current_state[:j] + (current_state[j]+1, 0) + current_state[j+2:]
+                
+    def ngenerator(self, k, N1, q):
+        local_exc2 = np.delete(self.local_exc1, k)
+        current_state = (0,)*len(local_exc2)
+        n = 0
+        while True:
+            pp = list(current_state)
+            pp.insert(k,q)
+            pp = tuple(pp)
+            
+            yield self.find_index[pp]
+            
+            j = len(local_exc2) - 1
+            current_state = current_state[:j] + (current_state[j]+1,)
+            n += 1
+            while n > N1 or current_state[j] >= local_exc2[j]:
+                j -= 1
+                if j < 0:
+                    return
+                n -= current_state[j+1] - 1
+                current_state = current_state[:j] + (current_state[j]+1, 0) + current_state[j+2:]
+    
+    
+    def generator_straight(self,m,N):
+        current_state = (0,)*m
+        n = 0
+        while True:
+            if (n == N):
+                yield current_state
+            j = m - 1
+            current_state = current_state[:j] + (current_state[j]+1,)
+            n += 1
+            while n > N or current_state[j] > 1:
+                j -= 1
+                if j < 0:
+                    return
+                n -= current_state[j+1] - 1
+                current_state = current_state[:j] + (current_state[j]+1, 0) + current_state[j+2:]
+
+                
+    def generator_back(self,m,N):
+        current_state = (0,)*m
+        n = 0
+        while True:
+            if (n == N):
+                yield current_state
+            j = 0
+            current_state = (current_state[j]+1,) + current_state[j+1:]
+            n += 1
+            while n > N or current_state[j] > 1:
+                j += 1
+                if j >= m:
+                    return
+                n -= current_state[j-1] - 1
+                current_state = current_state[:j-1] + (0, current_state[j]+1) + current_state[j+1:]
+
+
+                
+    def sea_generator(self):
+        m = self.modes
+        m1 = self.fermi_sea_modes
+        m2 = m - m1
+        N = self.global_exc
+        
+        n2=0
+        h2 = (0,)*m2
+        
+        if (N>m1):
+            for n1 in range (min(m1,N),-1,-1):
+                for h1 in self.generator_straight(m1, n1):
+                    yield (h1+h2)
+            
+            
+            for n2 in range (1,min(N-m1,m2)+1):
+                    for n1 in range (m1,-1,-1):
+                        for h2 in self.generator_back(m2, n2):
+                            for h1 in self.generator_straight(m1, n1):
+                                yield (h1+h2)
+            
+            if(N-m1<m2):
+                for n2 in range (N-m1+1,N-m1+min(m1,m-N)+1):
+                    for n1 in range (N-n2,-1,-1):
+                        for h2 in self.generator_back(m2, n2):
+                            for h1 in self.generator_straight(m1, n1):
+                                yield (h1+h2)
+        
+        else:
+            for n1 in range (m1,-1+ m1-N,-1):
+                for h1 in self.generator_straight(m1, n1):
+                    yield (h1+h2)
+                    
+            for n2 in range (1,min(m2,N)+1):
+                    for n1 in range (N-n2,-1,-1):
+                        for h2 in self.generator_back(m2, n2):
+                            for h1 in self.generator_straight(m1, n1):
+                                yield (h1+h2)
+            
+                
+    
+
 
 
         
@@ -274,7 +427,99 @@ class fock_space_kron:
                 self.create.append(sparse.kron(f1.create[k], f2.eye))
             for k in range(f1.modes, self.modes):
                 self.create.append(sparse.kron(f1.eye, f2.create[k-f1.modes]))
+                
+        self.local_exc = np.concatenate((f1.local_exc,f2.local_exc))
+        self.local_exc1 = np.array(self.local_exc+1) #internal parameter
+        self.global_exc = f1.global_exc + f2.global_exc
+        self.states_list = list(self.states_generator())
+        self.find_index = {state: idx for idx, state in enumerate(self.states_list)}
+                
+                
+                
+     #ggggggggggg           
+                
+    def states_generator(self):
+        #Generates all the possible states for given Fock space
+        current_state = (0,)*len(self.local_exc1)
+        n = 0
+        m = 0
+        j = len(self.local_exc1)
+        while True:
+            yield current_state
+
+            j = len(self.local_exc1) - 1
+            current_state = current_state[:j] + (current_state[j]+1,)
+            n += 1
             
+            while n > self.f2.global_exc or m > self.f1.global_exc or current_state[j] >= self.local_exc1[j]:
+                j -= 1
+                if j < 0:
+                    return
+                if j == (self.f1.modes-1):
+                    n -= current_state[j+1]
+                    m += 1
+                elif j<(self.f1.modes-1):
+                    m -= current_state[j+1] - 1
+                else:
+                    n -= current_state[j+1] - 1
+                current_state = current_state[:j] + (current_state[j]+1, 0) + current_state[j+2:]
+           
+        
+    def ngenerator(self, k, N1, N2, q):
+        local_exc2 = np.delete(self.local_exc1, k)
+        current_state = (0,)*len(local_exc2)
+        n = 0
+        m = 0
+        j = len(self.local_exc1)
+        while True:
+            pp = list(current_state)
+            pp.insert(k,q)
+            pp = tuple(pp)
+            
+            yield self.find_index[pp]
+            
+            j = len(local_exc2) - 1
+            current_state = current_state[:j] + (current_state[j]+1,)
+            n += 1
+            while n > N1 or m>N2 or current_state[j] >= local_exc2[j]:
+                j -= 1
+                if j < 0:
+                    return
+                if j == (self.f1.modes-1):
+                    n -= current_state[j+1]
+                    m += 1
+                elif j<(self.f1.modes-1):
+                    m -= current_state[j+1] - 1
+                else:
+                    n -= current_state[j+1] - 1
+                current_state = current_state[:j] + (current_state[j]+1, 0) + current_state[j+2:]
+                
+    def ptrace(self, psi, k):
+        psi1 = coo_array(psi)
+        rho = psi1.conj().T @ psi1
+        
+        N = int(self.local_exc[k])
+        N1 = self.f1.global_exc
+        N2 = self.f2.global_exc
+        border = self.f1.modes
+        
+        result = np.zeros((N+1,N+1), dtype = complex)
+        for p in range(N+1):
+            for q in range(N+1):
+                if k < border:
+                    N1 -= max(p,q)
+                else:
+                    N2 -= max(p,q)
+                a = list(self.ngenerator(k, N1, N2, p))
+                b = list(self.ngenerator(k, N1, N2, q))
+                for i in range(len(a)):
+                    result[p,q] += rho[a[i],b[i]]
+        return(result)
+                    
+                    
+                    
+                    
+    
     def sigmax(self, i):
         if (i<self.f1.modes):
              return(sparse.kron(self.f1.sigmax(i), self.f2.eye))
@@ -316,6 +561,8 @@ class fock_space_kron:
         else:
             s = list(state)
             return(self.f1.index(state[:self.f1.modes]) * self.f2.dimension + self.f2.index(state[self.f1.modes:]))
+        
+        
         
 def real_time_solver(psi0, dt, tmax, H, Q = None, final_state = None):
     K = psi0.size
@@ -381,6 +628,8 @@ def real_time_solver(psi0, dt, tmax, H, Q = None, final_state = None):
     else:
         return(results)
     
+        
+        
         
 
 
